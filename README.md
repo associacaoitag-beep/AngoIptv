@@ -102,5 +102,5 @@ lib/
 ## 📡 Fonte de Dados
 
 - **M3U**: `http://nitidez.pro:80/get.php?username=Marcio&password=123456&type=m3u_plus`
-- **Filtros**: Exclui FILME, SERIE, VOD, MOVIE, EPISODIO, TEMPORADA, DESENHO, ANIME
+- 
 - **Cache TTL**: Indefinido (só atualiza quando o usuário solicitar)
