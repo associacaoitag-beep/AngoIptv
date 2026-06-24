@@ -44,19 +44,30 @@ class ChannelProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      if (kDebugMode) debugPrint('📥 Starting channel load (forceRefresh: $forceRefresh)');
+      
       // Load channels in isolate to avoid blocking UI
       final channels = await _loadChannelsInIsolate(forceRefresh);
-      _allChannels = channels;
-      _featuredChannel = channels.isNotEmpty ? channels.first : null;
       
-      // Start lazy loading categories
-      _startLazyCategoryLoading(channels);
-      
-      _state = LoadingState.success;
+      if (channels.isEmpty) {
+        _errorMessage = 'Nenhum canal foi carregado. Verifique a conexão e tente novamente.';
+        _state = LoadingState.error;
+        if (kDebugMode) debugPrint('❌ Nenhum canal carregado');
+      } else {
+        _allChannels = channels;
+        _featuredChannel = channels.isNotEmpty ? channels.first : null;
+        
+        if (kDebugMode) debugPrint('✅ ${channels.length} channels loaded successfully');
+        
+        // Start lazy loading categories
+        _startLazyCategoryLoading(channels);
+        
+        _state = LoadingState.success;
+      }
     } catch (e) {
-      _errorMessage = 'Não foi possível carregar os canais. Verifique sua conexão.';
+      _errorMessage = 'Erro ao carregar canais:\n$e\n\nVerifique sua conexão e tente novamente.';
       _state = LoadingState.error;
-      if (kDebugMode) debugPrint('Error loading channels: $e');
+      if (kDebugMode) debugPrint('❌ Error loading channels: $e');
     }
 
     notifyListeners();
@@ -75,12 +86,12 @@ class ChannelProvider extends ChangeNotifier {
       // Set a timeout for the isolate
       final channels = await receivePort.first.timeout(
         const Duration(minutes: 1),
-        onTimeout: () => throw TimeoutException('Channel loading timed out'),
+        onTimeout: () => throw TimeoutException('Carregamento de canais expirou (timeout de 1 minuto)'),
       ) as List<Channel>;
       
       return channels;
     } catch (e) {
-      if (kDebugMode) debugPrint('Isolate error: $e, falling back to main thread');
+      if (kDebugMode) debugPrint('⚠️ Isolate error: $e, falling back to main thread');
       // Fallback to main thread if isolate fails
       return await ChannelService.loadChannels(forceRefresh: forceRefresh);
     }
@@ -92,9 +103,11 @@ class ChannelProvider extends ChangeNotifier {
     final bool forceRefresh = args[1];
     
     try {
+      if (kDebugMode) debugPrint('🔄 Isolate: Loading channels...');
       final channels = await ChannelService.loadChannels(forceRefresh: forceRefresh);
       sendPort.send(channels);
     } catch (e) {
+      if (kDebugMode) debugPrint('❌ Isolate error: $e');
       sendPort.send([]);
     }
   }
@@ -110,6 +123,7 @@ class ChannelProvider extends ChangeNotifier {
         .toList()
         ..sort();
 
+    if (kDebugMode) debugPrint('📂 Loading ${allCategories.length} categories lazily');
     _loadBatchOfCategories(channels, allCategories, 0);
   }
 
@@ -132,6 +146,7 @@ class ChannelProvider extends ChangeNotifier {
       _loadedCategoriesCount++;
     }
 
+    if (kDebugMode) debugPrint('📂 Loaded $_loadedCategoriesCount/${allCategories.length} categories');
     notifyListeners();
 
     // Schedule next batch
