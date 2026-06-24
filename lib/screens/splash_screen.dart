@@ -4,7 +4,6 @@ import '../providers/channel_provider.dart';
 import '../utils/app_colors.dart';
 import 'home_screen.dart';
 import 'privacy_screen.dart';
-import '../services/channel_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -77,39 +76,54 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _startLoading() async {
-    // Check privacy accepted
-    final prefs = await SharedPreferences.getInstance();
-    final privacyAccepted = prefs.getBool('privacy_accepted') ?? false;
+    try {
+      // Check privacy accepted
+      final prefs = await SharedPreferences.getInstance();
+      final privacyAccepted = prefs.getBool('privacy_accepted') ?? false;
 
-    // Initialize Hive
-    await ChannelService.initHive();
+      if (kDebugMode) debugPrint('🔐 Privacy accepted: $privacyAccepted');
 
-    // Load channels
-    if (mounted) {
-      final provider = context.read<ChannelProvider>();
-      await provider.loadChannels();
+      // Load channels - ChannelService.initHive() já foi chamado em main.dart
+      if (mounted) {
+        if (kDebugMode) debugPrint('📥 Starting channel loading from SplashScreen...');
+        final provider = context.read<ChannelProvider>();
+        await provider.loadChannels();
+        if (kDebugMode) debugPrint('✅ Channel loading completed');
+      }
+
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      if (!mounted) return;
+
+      // Fade out
+      await _fadeController.forward();
+
+      if (!mounted) return;
+
+      // Navigate
+      if (kDebugMode) debugPrint('🚀 Navigating to ${privacyAccepted ? 'HomeScreen' : 'PrivacyScreen'}');
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              privacyAccepted ? const HomeScreen() : const PrivacyScreen(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+          transitionDuration: const Duration(milliseconds: 500),
+        ),
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('❌ Error in _startLoading: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao carregar: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
-
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    if (!mounted) return;
-
-    // Fade out
-    await _fadeController.forward();
-
-    if (!mounted) return;
-
-    // Navigate
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            privacyAccepted ? const HomeScreen() : const PrivacyScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-        transitionDuration: const Duration(milliseconds: 500),
-      ),
-    );
   }
 
   @override
