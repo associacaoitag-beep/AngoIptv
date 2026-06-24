@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:path_provider/path_provider.dart';
 import 'providers/channel_provider.dart';
+import 'services/channel_service.dart';
 import 'screens/splash_screen.dart';
 import 'utils/app_theme.dart';
 
@@ -60,6 +61,10 @@ void main() async {
           debugPrint('📦 Initializing Hive...');
           await Hive.initFlutter();
           debugPrint('✅ Hive initialized successfully');
+          
+          // Initialize ChannelService after Hive
+          await ChannelService.initHive();
+          debugPrint('✅ ChannelService initialized');
         } catch (e) {
           debugPrint('❌ Hive initialization failed: $e');
           _writeCrashLog('Hive init error: $e\nStack: ${StackTrace.current}');
