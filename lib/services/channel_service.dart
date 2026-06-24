@@ -8,7 +8,8 @@ import 'm3u_parser.dart';
 
 class ChannelService {
   // M3U source URL - fetched via backend proxy for security
-  static const String _backendBase = 'http://10.0.2.2:8000';
+  // Use localhost para emulador, 192.168.x.x para rede local com dispositivo real
+  static const String _backendBase = 'http://localhost:8000';
   static const String _m3uDirectUrl =
       'http://nitidez.pro:80/get.php?username=Marcio&password=123456&type=m3u_plus';
 
@@ -31,11 +32,12 @@ class ChannelService {
     assert(() { _lastFetchKey; return true; }());
 
     if (!forceRefresh && box.isNotEmpty) {
-      if (kDebugMode) debugPrint('Loading ${box.length} channels from cache');
+      if (kDebugMode) debugPrint('✅ Loading ${box.length} channels from cache');
       return box.values.toList();
     }
 
     // Fetch from remote
+    if (kDebugMode) debugPrint('🔄 Fetching channels from remote...');
     return await _fetchFromRemote();
   }
 
@@ -44,6 +46,7 @@ class ChannelService {
       String m3uContent = '';
 
       // Try backend proxy first, then direct URL
+      if (kDebugMode) debugPrint('🔗 Trying backend: $_backendBase/api/channels');
       try {
         final response = await http
             .get(
@@ -53,6 +56,7 @@ class ChannelService {
             .timeout(const Duration(seconds: 30));
 
         if (response.statusCode == 200) {
+          if (kDebugMode) debugPrint('✅ Backend response successful');
           final List<dynamic> data = jsonDecode(response.body);
           final channels = data
               .map((e) => Channel.fromJson(e as Map<String, dynamic>))
@@ -60,11 +64,13 @@ class ChannelService {
           await _saveToCache(channels);
           return channels;
         }
-      } catch (_) {
+      } catch (e) {
         // Backend not available, fall through to direct M3U fetch
+        if (kDebugMode) debugPrint('⚠️ Backend unavailable: $e');
       }
 
       // Direct M3U fetch
+      if (kDebugMode) debugPrint('🔗 Trying direct M3U URL...');
       final response = await http.get(
         Uri.parse(_m3uDirectUrl),
         headers: {
@@ -74,17 +80,22 @@ class ChannelService {
       ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
+        if (kDebugMode) debugPrint('✅ Direct M3U fetch successful');
         m3uContent = response.body;
         final channels = M3uParser.parse(m3uContent);
+        if (kDebugMode) debugPrint('✅ Parsed ${channels.length} channels from M3U');
         await _saveToCache(channels);
         return channels;
       }
 
       throw Exception('Falha ao carregar canais: ${response.statusCode}');
     } catch (e) {
+      if (kDebugMode) debugPrint('❌ Error fetching from remote: $e');
+      
       // Return cached data if available (stale but better than nothing)
       final box = _channelBox ?? await Hive.openBox<Channel>('channels');
       if (box.isNotEmpty) {
+        if (kDebugMode) debugPrint('✅ Returning ${box.length} channels from stale cache');
         return box.values.toList();
       }
       rethrow;
@@ -100,7 +111,7 @@ class ChannelService {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_lastFetchKey, DateTime.now().millisecondsSinceEpoch);
-    if (kDebugMode) debugPrint('Saved ${channels.length} channels to cache');
+    if (kDebugMode) debugPrint('✅ Saved ${channels.length} channels to cache');
   }
 
   static Future<void> clearCache() async {
@@ -108,5 +119,6 @@ class ChannelService {
     await box.clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_lastFetchKey);
+    if (kDebugMode) debugPrint('🗑️ Cache cleared');
   }
 }
