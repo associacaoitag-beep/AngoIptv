@@ -102,20 +102,21 @@ Future<List<Channel>> _loadChannelsInIsolate(bool forceRefresh) async {
   }
 }
 
-  /// Isolate entry point
-  static Future<void> _channelLoaderEntry(List<dynamic> args) async {
-    final SendPort sendPort = args[0];
-    final bool forceRefresh = args[1];
-    
-    try {
-      if (kDebugMode) debugPrint('🔄 Isolate: Loading channels...');
-      final channels = await ChannelService.loadChannels(forceRefresh: forceRefresh);
-      sendPort.send(channels);
-    } catch (e) {
-      if (kDebugMode) debugPrint('❌ Isolate error: $e');
-      sendPort.send([]);
-    }
+  /// Isolate entry point (isolate-safe: does not access Hive)
+static Future<void> _channelLoaderEntry(List<dynamic> args) async {
+  final SendPort sendPort = args[0];
+  final bool forceRefresh = args[1];
+
+  try {
+    if (kDebugMode) debugPrint('🔄 Isolate: Fetching channels (isolate-safe)...');
+    // NOTE: fetchRemoteChannelsWithoutCache faz somente HTTP + parse (sem Hive)
+    final channels = await ChannelService.fetchRemoteChannelsWithoutCache();
+    sendPort.send(channels);
+  } catch (e) {
+    if (kDebugMode) debugPrint('❌ Isolate error: $e');
+    sendPort.send([]);
   }
+}
 
   /// Start lazy loading categories in batches
   void _startLazyCategoryLoading(List<Channel> channels) {
