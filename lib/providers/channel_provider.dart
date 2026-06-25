@@ -74,28 +74,33 @@ class ChannelProvider extends ChangeNotifier {
   }
 
   /// Load channels in a background isolate
-  Future<List<Channel>> _loadChannelsInIsolate(bool forceRefresh) async {
-    try {
-      final receivePort = ReceivePort();
-      await Isolate.spawn(
-        _channelLoaderEntry,
-        [receivePort.sendPort, forceRefresh],
-        debugName: 'ChannelLoader',
-      );
+Future<List<Channel>> _loadChannelsInIsolate(bool forceRefresh) async {
+  try {
+    final receivePort = ReceivePort();
+    await Isolate.spawn(
+      _channelLoaderEntry,
+      [receivePort.sendPort, forceRefresh],
+      debugName: 'ChannelLoader',
+    );
 
-      // Set a timeout for the isolate
-      final channels = await receivePort.first.timeout(
-        const Duration(minutes: 1),
-        onTimeout: () => throw TimeoutException('Carregamento de canais expirou (timeout de 1 minuto)'),
-      ) as List<Channel>;
-      
-      return channels;
-    } catch (e) {
-      if (kDebugMode) debugPrint('⚠️ Isolate error: $e, falling back to main thread');
-      // Fallback to main thread if isolate fails
-      return await ChannelService.loadChannels(forceRefresh: forceRefresh);
+    // Set a timeout for the isolate
+    final channels = await receivePort.first.timeout(
+      const Duration(minutes: 1),
+      onTimeout: () => throw TimeoutException('Carregamento de canais expirou (timeout de 1 minuto)'),
+    ) as List<Channel>;
+
+    // Save to Hive in main isolate (safe)
+    if (channels.isNotEmpty) {
+      await ChannelService.saveChannelsToCache(channels);
     }
+
+    return channels;
+  } catch (e) {
+    if (kDebugMode) debugPrint('⚠️ Isolate error: $e, falling back to main thread');
+    // Fallback to main thread if isolate fails
+    return await ChannelService.loadChannels(forceRefresh: forceRefresh);
   }
+}
 
   /// Isolate entry point
   static Future<void> _channelLoaderEntry(List<dynamic> args) async {
