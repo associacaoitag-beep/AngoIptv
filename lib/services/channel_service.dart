@@ -40,7 +40,11 @@ class ChannelService {
 
     // Fetch from remote with retries
     if (kDebugMode) debugPrint('🔄 Fetching channels from remote (${_m3uUrls.length} URL(s) available)...');
-    return await _fetchFromRemoteWithRetries();
+    final channels = await _fetchFromRemoteWithRetries();
+    if (channels.isNotEmpty) {
+      await _saveToCache(channels);
+    }
+    return channels;
   }
 
   /// Fetch with exponential backoff retry strategy
@@ -52,7 +56,7 @@ class ChannelService {
       for (int attempt = 1; attempt <= _maxRetries; attempt++) {
         try {
           if (kDebugMode) debugPrint('   Attempt $attempt/$_maxRetries...');
-          
+
           final response = await http.get(
             Uri.parse(url),
             headers: {
@@ -74,7 +78,7 @@ class ChannelService {
           }
         } catch (e) {
           if (kDebugMode) debugPrint('❌ Attempt $attempt failed: $e');
-          
+
           // Exponential backoff before retry
           if (attempt < _maxRetries) {
             final delaySeconds = 2 * attempt; // 2s, 4s, 6s
@@ -105,18 +109,62 @@ class ChannelService {
     );
   }
 
+  /// Fetch remote channels without touching Hive (safe to call from isolates).
+  static Future<List<Channel>> fetchRemoteChannelsWithoutCache() async {
+    for (int urlIndex = 0; urlIndex < _m3uUrls.length; urlIndex++) {
+      final url = _m3uUrls[urlIndex];
+      if (kDebugMode) debugPrint('🔗 (isolate-safe) Trying URL ${urlIndex + 1}/${_m3uUrls.length}: ${url.split('?')[0]}...');
+      for (int attempt = 1; attempt <= _maxRetries; attempt++) {
+        try {
+          if (kDebugMode) debugPrint('   Attempt $attempt/$_maxRetries (isolate-safe)...');
+          final response = await http.get(
+            Uri.parse(url),
+            headers: {
+              'User-Agent': 'AngoMovie/1.2.0 Android',
+              'Accept': '*/*',
+              'Connection': 'keep-alive',
+            },
+          ).timeout(_baseTimeout);
+          if (response.statusCode == 200) {
+            if (kDebugMode) debugPrint('✅ (isolate-safe) Successfully fetched from URL ${urlIndex + 1}');
+            final channels = M3uParser.parse(response.body);
+            if (channels.isNotEmpty) {
+              return channels;
+            }
+          } else {
+            if (kDebugMode) debugPrint('⚠️ (isolate-safe) HTTP ${response.statusCode} from URL ${urlIndex + 1}');
+          }
+        } catch (e) {
+          if (kDebugMode) debugPrint('❌ (isolate-safe) Attempt $attempt failed: $e');
+          if (attempt < _maxRetries) {
+            final delaySeconds = 2 * attempt;
+            if (kDebugMode) debugPrint('⏳ (isolate-safe) Waiting ${delaySeconds}s before retry...');
+            await Future.delayed(Duration(seconds: delaySeconds));
+          }
+        }
+      }
+    }
+    // nothing found
+    return <Channel>[];
+  }
+
+  /// Public wrapper to save channels to cache (safe to call from main isolate)
+  static Future<void> saveChannelsToCache(List<Channel> channels) async {
+    await _saveToCache(channels);
+  }
+
   static Future<void> _saveToCache(List<Channel> channels) async {
     try {
       final box = _channelBox ?? await Hive.openBox<Channel>('channels');
       await box.clear();
-      
+
       for (int i = 0; i < channels.length; i++) {
         await box.put(i, channels[i]);
       }
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_lastFetchKey, DateTime.now().millisecondsSinceEpoch);
-      
+
       if (kDebugMode) debugPrint('💾 Saved ${channels.length} channels to cache successfully');
     } catch (e) {
       if (kDebugMode) debugPrint('❌ Error saving to cache: $e');
@@ -141,13 +189,13 @@ class ChannelService {
       final box = _channelBox ?? await Hive.openBox<Channel>('channels');
       final prefs = await SharedPreferences.getInstance();
       final lastFetch = prefs.getInt(_lastFetchKey);
-      
+
       String lastFetchStr = 'Nunca';
       if (lastFetch != null) {
         final date = DateTime.fromMillisecondsSinceEpoch(lastFetch);
         lastFetchStr = date.toString();
       }
-      
+
       return 'Canais em cache: ${box.length}\nÚltimo carregamento: $lastFetchStr';
     } catch (e) {
       return 'Erro ao obter info do cache: $e';
